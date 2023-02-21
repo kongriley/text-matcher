@@ -1,8 +1,9 @@
 # coding: utf-8
 
-import re
+import regex as re
 import os
 import json
+import string
 import logging
 import itertools
 import nltk
@@ -12,34 +13,45 @@ from nltk.stem.lancaster import LancasterStemmer
 from nltk.util import ngrams
 from string import punctuation
 from termcolor import colored
+from spellchecker import SpellChecker
 
 
 class Text:
-    def __init__(self, raw_text, label, removeStopwords=True):
+    
+    def __init__(self, raw_text, label, removeStopwords=True, stemWords=True, removePunctuation=True):
         if type(raw_text) == list:
             # JSTOR critical works come in lists, where each item represents a page.
             self.text = ' \n '.join(raw_text)
         else:
             self.text = raw_text
         self.label = label
-        self.preprocess(self.text)
-        self.tokens = self.getTokens(removeStopwords)
+        self.preprocess(self.text, removePunctuation)
+        self.tokens = self.getTokens(removeStopwords, stemWords)
         self.trigrams = self.ngrams(3)
+        self.unknown = ''
 
-    def preprocess(self, text):
+    def preprocess(self, text, removePunctuation=True):
         """ Heals hyphenated words, and maybe other things. """
         self.text = re.sub(r'([A-Za-z])- ([a-z])', r'\1\2', self.text)
+        if removePunctuation:
+            self.text = re.sub(r'[\-\']', r' ', self.text) # Convert hyphens and quotation marks to spaces.
+            
+            # self.text = re.sub(r'[^\p{L}\p{M}\d]', r'', self.text) # Delete all other punctuation.
 
-    def getTokens(self, removeStopwords=True):
+    def getTokens(self, removeStopwords=True, stemWords=True):
         """ Tokenizes the text, breaking it up into words, removing punctuation. """
-        tokenizer = nltk.RegexpTokenizer('[a-zA-Z]\w+\'?\w*')  # A custom regex tokenizer.
+        tokenizer = nltk.RegexpTokenizer('\w+\'*\w*')  # A custom regex tokenizer.
+
+        # tokenizer = nltk.tokenize.TreebankWordTokenizer()
+        
         spans = list(tokenizer.span_tokenize(self.text))
         # Take note of how many spans there are in the text
         self.length = spans[-1][-1]
         tokens = tokenizer.tokenize(self.text)
         tokens = [token.lower() for token in tokens]  # make them lowercase
-        stemmer = LancasterStemmer()
-        tokens = [stemmer.stem(token) for token in tokens]
+        if stemWords:
+            stemmer = LancasterStemmer()
+            tokens = [stemmer.stem(token) for token in tokens]
         if not removeStopwords:
             self.spans = spans
             return tokens
@@ -52,6 +64,12 @@ class Text:
     def ngrams(self, n):
         """ Returns ngrams for the text."""
         return list(ngrams(self.tokens, n))
+
+    def readability(self):
+        spell = SpellChecker(SpellChecker.languages())
+        self.unknown = spell.unknown(self.tokens)
+        
+        return round(100 - float(len(self.unknown))/len(self.tokens) * 100, 2)
 
 
 class ExtendedMatch:
